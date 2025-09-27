@@ -1,0 +1,45 @@
+--- src/bot/handlers.ts
++++ src/bot/handlers.ts
+@@ -14,6 +14,7 @@
+   settingsRootText, settingsRootKeyboard,
+   settingsModeText, settingsModeKeyboard,
+   settingsTimeText, settingsTimeKeyboard,
++  leaderboardText, leaderboardKeyboard,
+   todayPollText, todayPollKeyboard,
+   type Mode,
+ } from '../ui/text';
+@@ -21,6 +22,7 @@
+ import { pollAll, pollUsersByHour } from './scheduler';
+ import { createCraftPoll } from '../db/pollRepo';
++import { getLeaderboard } from '../db/leaderboardRepo';
+
+ const log = createLogger(process.env.LOG_LEVEL);
+
+@@ -347,6 +349,26 @@
+         if (cb.id) await bot.answerCallbackQuery(cb.id).catch(()=>{});
+         return;
+       }
++      
++      // Топ игроков
++      if (data === 'menu:leaderboard') {
++        const user = await getByTelegramId(tgId);
++        if (!user) {
++          await editOrReplaceFromCallback(bot, cb, 'Сначала /start', backOnlyKeyboard());
++          if (cb.id) await bot.answerCallbackQuery(cb.id).catch(()=>{});
++          return;
++        }
++        
++        const leaderboard = await getLeaderboard(1, 10, 'current', (user.mode ?? 'zozh') as Mode);
++        
++        const text = leaderboardText({
++          ...leaderboard,
++          type: 'current',
++          mode: (user.mode ?? 'zozh') as Mode
++        });
++        await editOrReplaceFromCallback(bot, cb, text, leaderboardKeyboard(leaderboard));
++        if (cb.id) await bot.answerCallbackQuery(cb.id).catch(()=>{});
++        return;
++      }
+
+       // Настройки
+       const user = await getByTelegramId(tgId);

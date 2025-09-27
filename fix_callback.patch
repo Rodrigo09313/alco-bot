@@ -1,0 +1,13 @@
+--- src/bot/handlers.ts
++++ src/bot/handlers.ts
+@@ -400,6 +400,11 @@
+         return;
+       }
+ 
++      if (data === 'profile:achievements') {
++        await handleAchievementsCallback(bot, cb, tgId);
++        return;
++      }
++
+       // Настройки
+       await handleSettingsCallback(bot, cb, tgId, data);

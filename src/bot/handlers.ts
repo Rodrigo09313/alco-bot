@@ -1,42 +1,32 @@
-// ЕДИНЫЙ роутер: меню/профиль/лидеры/настройки + АДМИН-ПАНЕЛЬ.
-// Весь текст и клавиатуры вынесены в src/ui/text.ts.
+// src/bot/handlers.ts
+// ЕДИНЫЙ роутер: меню/профиль/цели/настройки + АДМИН-ПАНЕЛЬ.
+// Русские комментарии. В админке все возвраты идут в ГЛАВНОЕ МЕНЮ.
 
 import TelegramBot from 'node-telegram-bot-api';
-import { createLogger } from '../lib/logger.js';
+import { createLogger } from '../lib/logger';
 import {
   createOrGet, updateLogin, getByTelegramId,
   updateMode, updatePollHour, listAllUsers
-} from '../db/usersRepo.js';
-import { getSession, setState, clearSession } from '../fsm/session.js';
-import { showScreen, editOrReplaceFromCallback } from '../ui/screen.js';
+} from '../db/usersRepo';
+import { getSession, setState, clearSession } from '../fsm/session';
+import { showScreen, editOrReplaceFromCallback } from '../ui/screen';
 import {
-  // Меню
-  mainMenuText, mainMenuKeyboard,
-  // Универсальные клавиатуры/тексты
-  backOnlyKeyboard, backToProfileKeyboard, toMenuKeyboard,
-  needStartText, emptyTextError,
-  // Онбординг
-  askLoginText, chooseModeText, chooseModeKeyboard,
-  // Настройки
+  askLoginText, chooseModeKeyboard, chooseModeText,
+  mainMenuKeyboard, mainMenuText,
+  backOnlyKeyboard, backToProfileKeyboard,
+  profileSummaryText, profileKeyboard,
   settingsRootText, settingsRootKeyboard,
   settingsModeText, settingsModeKeyboard,
   settingsTimeText, settingsTimeKeyboard,
-  // Профиль
-  profileSummaryText, profileKeyboard,
-  // Опросы
-  todayPollText, todayPollKeyboard,
-  // Лидеры
   leaderboardText, leaderboardKeyboard,
-  // Админ
-  adminText, adminKeyboard, craftPromptText,
-  craftResultText, pollAllResultText, pollHourResultText,
-  // Типы
+  todayPollText, todayPollKeyboard,
+  achievementsText,
   type Mode,
-} from '../ui/text.js';
-import { q1 } from '../db/sql.js';
-import { pollAll, pollUsersByHour } from './scheduler.js';
-import { createCraftPoll } from '../db/pollRepo.js';
-import { getLeaderboard } from '../db/leaderboardRepo.js';
+} from '../ui/text';
+import { q1 } from '../db/sql';
+import { pollAll, pollUsersByHour } from './scheduler';
+import { createCraftPoll } from '../db/pollRepo';
+import { getLeaderboard } from '../db/leaderboardRepo';
 
 const log = createLogger(process.env.LOG_LEVEL);
 
@@ -99,29 +89,49 @@ async function renderGoals(user: { id: number; mode: Mode }) {
   const sober30pct = pct(l30s, l30s + l30d);
   const portions = portions30?.portions ?? 0;
 
-  const goals: { title: string; done: boolean; hint?: string }[] =
-    (user.mode === 'zozh'
-      ? [
-          { title: 'Серия трезвости 7 дней',       done: sCur >= 7,  hint: `Текущая: ${sCur}` },
-          { title: 'Лучшая трезвая серия ≥ 21',    done: sBest >= 21, hint: `Лучшая: ${sBest}` },
-          { title: '≥ 80% трезвых за 30 дней',     done: sober30pct >= 80, hint: `${sober30pct}%` },
-          { title: '0 порций за 30 дней',          done: portions === 0,   hint: `Порций: ${portions}` },
-          { title: 'Без запоев (пьян. серия < 2)', done: dCur < 2,         hint: `Пьян. серия: ${dCur}` },
-        ]
-      : [
-          { title: 'Серия пьянства 3 дня',         done: dCur >= 3,  hint: `Текущая: ${dCur}` },
-          { title: 'Лучшая пьяная серия ≥ 7',      done: dBest >= 7, hint: `Лучшая: ${dBest}` },
-          { title: '≤ 30% трезвых за 30 дней',     done: sober30pct <= 30, hint: `${sober30pct}%` },
-          { title: '≥ 30 порций за 30 дней',       done: portions >= 30,   hint: `Порций: ${portions}` },
-          { title: 'Нет трезвых серий ≥ 3',        done: sCur < 3,         hint: `Трезв. серия: ${sCur}` },
-        ]);
-
-  const goalsLines = goals
-    .map(g => `${g.done ? '✅' : '⭕️'} ${g.title}${g.hint ? `\n   <i>${g.hint}</i>` : ''}`)
-    .join('\n');
-
-  return `<b>${user.mode === 'zozh' ? '🎯 Цели ЗОЖ' : '🎯 Цели Алко-режима'}</b>\n\n${goalsLines}`;
+  let goals: { [k: string]: { title: string; done: boolean; hint?: string } } = {};
+  const mode = user.mode;
+  if (mode === 'zozh') {
+    goals = {
+      g1: { title: 'Серия трезвости 7 дней',      done: sCur >= 7,  hint: `Текущая: ${sCur}` },
+      g2: { title: 'Лучшая трезвая серия ≥ 21',   done: sBest >= 21, hint: `Лучшая: ${sBest}` },
+      g3: { title: '≥ 80% трезвых за 30 дней',    done: sober30pct >= 80, hint: `${sober30pct}%` },
+      g4: { title: '0 порций за 30 дней',         done: portions === 0,   hint: `Порций: ${portions}` },
+      g5: { title: 'Без запоев (пьян. серия < 2)',done: dCur < 2,         hint: `Пьян. серия: ${dCur}` },
+    };
+  } else {
+    goals = {
+      g1: { title: 'Серия пьянства 3 дня',        done: dCur >= 3,  hint: `Текущая: ${dCur}` },
+      g2: { title: 'Лучшая пьяная серия ≥ 7',     done: dBest >= 7, hint: `Лучшая: ${dBest}` },
+      g3: { title: '≤ 30% трезвых за 30 дней',    done: sober30pct <= 30, hint: `${sober30pct}%` },
+      g4: { title: '≥ 30 порций за 30 дней',      done: portions >= 30,   hint: `Порций: ${portions}` },
+      g5: { title: 'Нет трезвых серий ≥ 3',       done: sCur < 3,         hint: `Трезв. серия: ${sCur}` },
+    };
+  }
+  return (
+    `<b>${mode === 'zozh' ? '🎯 Цели ЗОЖ' : '🎯 Цели Алко-режима'}</b>\n\n` +
+    Object.values(goals).map(g => `${g.done ? '✅' : '⭕️'} ${g.title}` + (g.hint ? `\n   <i>${g.hint}</i>` : '')).join('\n')
+  );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Админ UI (кнопки админки остаются, но ВСЕ возвраты ведут в главное меню)
+function adminText(): string {
+  return `<b>Админ-панель</b>\nДоступно:\n• Опросить всех\n• Опросить по текущему часу (МСК)\n• Крафтовый опрос (ручной вопрос)`;
+}
+function adminKeyboard(): TelegramBot.InlineKeyboardMarkup {
+  return {
+    inline_keyboard: [
+      [{ text: '🚨 Опросить всех сейчас', callback_data: 'admin:poll_all' }],
+      [{ text: '🕐 Опросить по текущему часу (МСК)', callback_data: 'admin:poll_hour' }],
+      [{ text: '🧪 Крафтовый опрос', callback_data: 'admin:craft' }],
+      [{ text: '← В меню', callback_data: 'menu:back' }], // ← сразу в основное меню
+    ],
+  };
+}
+const toMenuKb: TelegramBot.InlineKeyboardMarkup = {
+  inline_keyboard: [[{ text: '← В меню', callback_data: 'menu:back' }]],
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Главный экран
@@ -168,7 +178,7 @@ export function registerHandlers(bot: TelegramBot) {
         if (session?.state === 'ADMIN_AWAIT_CRAFT') {
           const question = msg.text.trim().slice(0, 256);
           if (!question) {
-            await showScreen(bot, msg.chat.id, emptyTextError(), { reply_markup: toMenuKeyboard() });
+            await showScreen(bot, msg.chat.id, 'Текст пуст. Пришли вопрос строкой.', { reply_markup: toMenuKb });
             return;
           }
           const users = await listAllUsers();
@@ -184,10 +194,11 @@ export function registerHandlers(bot: TelegramBot) {
           }
           await setState(me!.id, { state: 'IDLE', payload: {} });
 
+          // Итог сразу с кнопкой "В меню"
           await showScreen(
             bot, msg.chat.id,
-            craftResultText(ok, users.length, fail),
-            { reply_markup: toMenuKeyboard() }
+            `✅ Крафтовый опрос разослан.\nOK: <b>${ok}</b> / ${users.length}\nОшибок: <b>${fail}</b>`,
+            { reply_markup: toMenuKb }
           );
           return;
         }
@@ -198,7 +209,7 @@ export function registerHandlers(bot: TelegramBot) {
       const user = await getByTelegramId(tgId); if (!user) return;
 
       let session = await getSession(user.id);
-      if (!session) { session = { state: 'IDLE', payload: {} } as any; await setState(user.id, session).catch(()=>{}); }
+      if (!session) { session = { state: 'IDLE', payload: {} }; await setState(user.id, session).catch(()=>{}); }
 
       if (session.state === 'WAITING_LOGIN') {
         const login = msg.text.trim().slice(0, 32) || null;
@@ -214,21 +225,9 @@ export function registerHandlers(bot: TelegramBot) {
   bot.onText(/^\/profile$/, async (msg) => {
     const tgId = msg.from?.id; if (!tgId) return;
     const user = await getByTelegramId(tgId);
-    if (!user) return showScreen(bot, msg.chat.id, needStartText(), { reply_markup: mainMenuKeyboard() });
+    if (!user) return showScreen(bot, msg.chat.id, 'Сначала /start', { reply_markup: mainMenuKeyboard() });
     const text = await renderProfileSummary(user as any);
     await showScreen(bot, msg.chat.id, text, { reply_markup: profileKeyboard() });
-  });
-
-  // /leaderboard — команда
-  bot.onText(/^\/leaderboard$/i, async (msg) => {
-    const page = 1;
-    const { rows, total, pageSize } = await getLeaderboard(page, 10);
-    await showScreen(
-      bot,
-      msg.chat.id,
-      leaderboardText({ rows, page, total, pageSize }),
-      { reply_markup: leaderboardKeyboard({ page, total, pageSize }) }
-    );
   });
 
   // /admin — только для админа
@@ -248,6 +247,7 @@ export function registerHandlers(bot: TelegramBot) {
 
       // Админ-раздел
       if (tgId === ADMIN_TG_ID && data.startsWith('admin:')) {
+        // Любой "назад" из админки — в ГЛАВНОЕ МЕНЮ
         if (data === 'admin:back') {
           await editOrReplaceFromCallback(bot, cb, mainMenuText(), mainMenuKeyboard());
           if (cb.id) await bot.answerCallbackQuery(cb.id).catch(()=>{});
@@ -257,8 +257,8 @@ export function registerHandlers(bot: TelegramBot) {
           const res = await pollAll(bot);
           await editOrReplaceFromCallback(
             bot, cb,
-            pollAllResultText(res.ok, res.total, res.fail),
-            toMenuKeyboard()
+            `✅ Опрос для всех.\nOK: <b>${res.ok}</b> / ${res.total}\nОшибок: <b>${res.fail}</b>`,
+            toMenuKb
           );
           if (cb.id) await bot.answerCallbackQuery(cb.id, { text: 'Отправил всем' }).catch(()=>{});
           return;
@@ -269,8 +269,8 @@ export function registerHandlers(bot: TelegramBot) {
           const res = await pollUsersByHour(bot, hour);
           await editOrReplaceFromCallback(
             bot, cb,
-            pollHourResultText(hour, res.ok, res.total, res.fail),
-            toMenuKeyboard()
+            `✅ Опрос по часу (МСК ${String(hour).padStart(2,'0')}:00).\nOK: <b>${res.ok}</b> / ${res.total}\nОшибок: <b>${res.fail}</b>`,
+            toMenuKb
           );
           if (cb.id) await bot.answerCallbackQuery(cb.id, { text: 'Отправил по часу' }).catch(()=>{});
           return;
@@ -278,10 +278,11 @@ export function registerHandlers(bot: TelegramBot) {
         if (data === 'admin:craft') {
           const me = await getByTelegramId(tgId);
           if (me) await setState(me.id, { state: 'ADMIN_AWAIT_CRAFT', payload: {} });
+          // Промпт с кнопкой "В меню", а не "в админку"
           await editOrReplaceFromCallback(
             bot, cb,
-            craftPromptText(),
-            toMenuKeyboard()
+            `<b>Крафтовый опрос</b>\n\nПришли ТЕКСТ вопроса одним сообщением.\nВсем пользователям уйдёт «Да/Нет», ответы сохранятся.`,
+            toMenuKb
           );
           if (cb.id) await bot.answerCallbackQuery(cb.id).catch(()=>{});
           return;
@@ -295,36 +296,11 @@ export function registerHandlers(bot: TelegramBot) {
         return;
       }
 
-      // Лидеры — вход из меню
-      if (data === 'menu:leaderboard') {
-        const page = 1;
-        const { rows, total, pageSize } = await getLeaderboard(page, 10);
-        await editOrReplaceFromCallback(
-          bot, cb,
-          leaderboardText({ rows, page, total, pageSize }),
-          leaderboardKeyboard({ page, total, pageSize })
-        );
-        if (cb.id) await bot.answerCallbackQuery(cb.id).catch(()=>{});
-        return;
-      }
-      // Лидеры — пагинация
-      if (data.startsWith('leaderboard:page:')) {
-        const page = Math.max(1, Number(data.split(':')[2] ?? '1') || 1);
-        const { rows, total, pageSize } = await getLeaderboard(page, 10);
-        await editOrReplaceFromCallback(
-          bot, cb,
-          leaderboardText({ rows, page, total, pageSize }),
-          leaderboardKeyboard({ page, total, pageSize })
-        );
-        if (cb.id) await bot.answerCallbackQuery(cb.id).catch(()=>{});
-        return;
-      }
-
       // Профиль/цели
       if (data === 'menu:profile') {
         const user = await getByTelegramId(tgId);
         if (!user) {
-          await editOrReplaceFromCallback(bot, cb, needStartText(), backOnlyKeyboard());
+          await editOrReplaceFromCallback(bot, cb, 'Сначала /start', backOnlyKeyboard());
           if (cb.id) await bot.answerCallbackQuery(cb.id).catch(()=>{});
           return;
         }
@@ -336,7 +312,7 @@ export function registerHandlers(bot: TelegramBot) {
       if (data === 'profile:goals') {
         const user = await getByTelegramId(tgId);
         if (!user) {
-          await editOrReplaceFromCallback(bot, cb, needStartText(), backOnlyKeyboard());
+          await editOrReplaceFromCallback(bot, cb, 'Сначала /start', backOnlyKeyboard());
           if (cb.id) await bot.answerCallbackQuery(cb.id).catch(()=>{});
           return;
         }
@@ -346,10 +322,55 @@ export function registerHandlers(bot: TelegramBot) {
         return;
       }
 
+      // Топ игроков
+      if (data === 'menu:leaderboard') {
+        const user = await getByTelegramId(tgId);
+        if (!user) {
+          await editOrReplaceFromCallback(bot, cb, 'Сначала /start', backOnlyKeyboard());
+          if (cb.id) await bot.answerCallbackQuery(cb.id).catch(()=>{});
+          return;
+        }
+        
+        const leaderboard = await getLeaderboard(1, 10, 'current', (user.mode ?? 'zozh') as Mode);
+        
+        const text = leaderboardText({
+          ...leaderboard,
+          type: 'current',
+          mode: (user.mode ?? 'zozh') as Mode
+        });
+        await editOrReplaceFromCallback(bot, cb, text, leaderboardKeyboard(leaderboard));
+        if (cb.id) await bot.answerCallbackQuery(cb.id).catch(()=>{});
+        return;
+      }
+
+      // Достижения
+      if (data === 'profile:achievements') {
+        const user = await getByTelegramId(tgId);
+        if (!user) {
+          await editOrReplaceFromCallback(bot, cb, 'Сначала /start', backOnlyKeyboard());
+          if (cb.id) await bot.answerCallbackQuery(cb.id).catch(()=>{});
+          return;
+        }
+        
+        const totals = await q1<{ no_cnt: number; yes_cnt: number }>`
+          SELECT COALESCE(SUM((answer='no')::int),0)::int AS no_cnt,
+                 COALESCE(SUM((answer='yes')::int),0)::int AS yes_cnt
+          FROM daily_polls WHERE user_id = ${user.id}
+        `;
+        
+        const soberDays = totals?.no_cnt ?? 0;
+        const drunkDays = totals?.yes_cnt ?? 0;
+        
+        const text = achievementsText(user.mode as Mode, soberDays, drunkDays);
+        await editOrReplaceFromCallback(bot, cb, text, backToProfileKeyboard());
+        if (cb.id) await bot.answerCallbackQuery(cb.id).catch(()=>{});
+        return;
+      }
+
       // Настройки
       const user = await getByTelegramId(tgId);
       if (!user) {
-        await editOrReplaceFromCallback(bot, cb, needStartText(), backOnlyKeyboard());
+        await editOrReplaceFromCallback(bot, cb, 'Сначала /start', backOnlyKeyboard());
         if (cb.id) await bot.answerCallbackQuery(cb.id).catch(()=>{});
         return;
       }

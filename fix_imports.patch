@@ -1,0 +1,10 @@
+--- src/bot/handlers.ts
++++ src/bot/handlers.ts
+@@ -32,7 +32,7 @@
+   // Админ
+   adminText, adminKeyboard, craftPromptText,
+   craftResultText, pollAllResultText, pollHourResultText,
+-  // Типы
++  achievementsText,
+   type Mode,
+ } from '../ui/text.js';
