@@ -17,14 +17,16 @@
   },
   "dependencies": {
     "bullmq": "^5.58.8",
-    "dotenv": "^17.2.2",
     "ioredis": "^5.8.0",
-    "node-telegram-bot-api": "^0.66.0",
+    "node-telegram-bot-api": "^0.63.0",
     "pg": "^8.16.3",
     "pino": "^9.11.0",
+    "postgres": "^3.4.7",
     "zod": "^4.1.11"
   },
   "devDependencies": {
+    "@types/node-telegram-bot-api": "^0.64.11",
+    "dotenv": "^17.2.2",
     "pino-pretty": "^13.1.1",
     "tsx": "^4.20.5"
   }

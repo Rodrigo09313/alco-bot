@@ -1,71 +1,64 @@
-// Репозиторий для ежедневных опросов и записей потребления.
-import { q, q1 } from './sql.js';
+// src/db/pollRepo.ts
+import { sql } from './pg';
 
-export interface PollRow {
+/** Europe/Warsaw “сегодня” */
+function todayWarsawDateExpr() {
+  return sql`(now() at time zone 'Europe/Warsaw')::date`;
+}
+
+/**
+ * Создаём/возвращаем запись опроса на сегодня.
+ * ВАЖНО: если уже был ответ за сегодня, НЕ меняем status/answer.
+ */
+export async function createManualPoll(userId: number): Promise<{ id: number }> {
+  const pollDateExpr = todayWarsawDateExpr();
+  const [row] = await sql<{ id: number }>`
+    insert into daily_polls (user_id, poll_date, status)
+    values (${userId}, ${pollDateExpr}, 'pending')
+    on conflict (user_id, poll_date) do update
+      set attempt   = least(daily_polls.attempt + 1, 3),
+          status    = case when daily_polls.status = 'answered'
+                           then daily_polls.status
+                           else 'pending'
+                      end,
+          updated_at = now()
+    returning id
+  `;
+  return row;
+}
+
+export async function setPollAnswerNo(pollId: number) {
+  await sql`
+    update daily_polls
+       set status = 'answered',
+           answer = 'no',
+           updated_at = now()
+     where id = ${pollId}
+  `;
+}
+
+export async function setPollAnswerYes(pollId: number) {
+  await sql`
+    update daily_polls
+       set status = 'answered',
+           answer = 'yes',
+           updated_at = now()
+     where id = ${pollId}
+  `;
+}
+
+/** Получить запись опроса по id */
+export async function getPollById(pollId: number): Promise<{
   id: number;
   user_id: number;
-  poll_date: string; // DATE в БД -> приходит как строка 'YYYY-MM-DD'
-  attempt: number;
+  poll_date: string;
   status: 'pending' | 'answered' | 'skipped';
   answer: 'yes' | 'no' | null;
-  created_at: string;
-  updated_at: string;
-}
-
-/** Создать pending опрос на дату (идемпотентно по UNIQUE(user_id,poll_date)) */
-export async function createPending(user_id: number, dateISO: string): Promise<PollRow> {
-  const row = await q1<PollRow>(
-    `INSERT INTO daily_polls(user_id, poll_date, attempt, status)
-     VALUES($1, $2::date, 1, 'pending')
-     ON CONFLICT (user_id, poll_date)
-       DO UPDATE SET updated_at = now()
-     RETURNING *`,
-    [user_id, dateISO]
-  );
-  return row!;
-}
-
-export async function getPoll(user_id: number, dateISO: string) {
-  return q1<PollRow>(
-    `SELECT * FROM daily_polls WHERE user_id=$1 AND poll_date=$2::date`,
-    [user_id, dateISO]
-  );
-}
-
-export async function setPollAnswered(user_id: number, dateISO: string, answer: 'yes'|'no') {
-  return q1<PollRow>(
-    `UPDATE daily_polls
-       SET status='answered', answer=$3, updated_at=now()
-     WHERE user_id=$1 AND poll_date=$2::date
-     RETURNING *`,
-    [user_id, dateISO, answer]
-  );
-}
-
-export async function bumpAttempt(user_id: number, dateISO: string) {
-  return q1<PollRow>(
-    `UPDATE daily_polls
-       SET attempt = LEAST(attempt + 1, 3), updated_at=now()
-     WHERE user_id=$1 AND poll_date=$2::date
-     RETURNING *`,
-    [user_id, dateISO]
-  );
-}
-
-/** Добавить запись потребления (минимум: код напитка и кол-во дринков) */
-export async function addConsumption(params: {
-  user_id: number;
-  local_date: string;       // 'YYYY-MM-DD'
-  drink_code: string;       // FK -> drinks.code
-  drinks_count: number;
-  ml?: number | null;
-  pure_alcohol_ml?: number | null;
-  cost?: number | null;
-}) {
-  const { user_id, local_date, drink_code, drinks_count, ml, pure_alcohol_ml, cost } = params;
-  await q(
-    `INSERT INTO consumption_records(user_id, local_date, drink_code, drinks_count, ml, pure_alcohol_ml, cost)
-     VALUES ($1, $2::date, $3, $4, $5, $6, $7)`,
-    [user_id, local_date, drink_code, drinks_count, ml ?? null, pure_alcohol_ml ?? null, cost ?? null]
-  );
+} | null> {
+  const [row] = await sql<{
+    id: number; user_id: number; poll_date: string;
+    status: 'pending'|'answered'|'skipped'; answer: 'yes'|'no'|null;
+  }>`select id, user_id, poll_date::text as poll_date, status, answer
+     from daily_polls where id = ${pollId} limit 1`;
+  return row ?? null;
 }

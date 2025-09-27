@@ -1,65 +1,59 @@
-import { env } from './config/env.js';
-import { createLogger } from './lib/logger.js';
-import { getPg, checkPg, closePg } from './db/pg.js';
-import { getRedis, checkRedis, closeRedis } from './lib/redis.js';
-import { startBot, stopBot } from './bot/bootstrap.js';
+// Точка входа приложения (без nav.ts).
+// Делаем healthcheck Postgres/Redis, запускаем бота, регистрируем единый роутер и опрос.
 
-const log = createLogger(env.LOG_LEVEL);
+import { createLogger } from './lib/logger';
+import { getPg, checkPg, closePg } from './db/pg';
+import { getRedis, checkRedis, closeRedis } from './lib/redis';
+import { startBot, stopBot } from './bot/bootstrap';
+import { registerHandlers } from './bot/handlers';
+import { registerPollFlow } from './bot/pollFlow';
 
-/**
- * main(): пошагово проверяем окружение, коннекты и запускаем «пустой» бот.
- * Всё с русскими логами, чтобы быстро диагностировать проблемы новичку.
- */
+const log = createLogger(process.env.LOG_LEVEL || 'info');
+
 async function main() {
-  log.info({ NODE_ENV: process.env.NODE_ENV ?? 'dev' }, 'Starting app');
+  // Логируем NODE_ENV напрямую из process.env (а не из env)
+  log.info({ NODE_ENV: process.env.NODE_ENV || 'unknown' }, 'Starting app');
 
-  // 1) Подключение к Postgres
+  // --- Healthchecks БД (тип возвращаемого значения — void, просто ждём успех) ---
   try {
-    getPg();
-    const ok = await checkPg();
-    if (!ok) throw new Error('SELECT 1 вернул не 1');
+    getPg();             // инициализация пула
+    await checkPg();     // проверочный запрос SELECT 1; кинет ошибку при проблеме
     log.info('Postgres: OK');
   } catch (err) {
     log.error({ err }, 'Postgres: FAIL');
     process.exit(1);
   }
 
-  // 2) Подключение к Redis
+  // --- Healthchecks Redis (также void) ---
   try {
-    getRedis();
-    const ok = await checkRedis();
-    if (!ok) throw new Error('PING != PONG');
+    const r = getRedis();
+    await checkRedis(r);
     log.info('Redis: OK');
   } catch (err) {
     log.error({ err }, 'Redis: FAIL');
     process.exit(1);
   }
 
-  // 3) Стартуем бота (polling)
-  try {
-    await startBot();
-  } catch (err) {
-    log.error({ err }, 'Bot start: FAIL (проверь BOT_TOKEN)');
-    process.exit(1);
-  }
+  // --- Бот + обработчики ---
+  const bot = await startBot();   // снимаем вебхук, запускаем polling внутри bootstrap
+  registerHandlers(bot);          // ЕДИНЫЙ роутер команд/кнопок
+  registerPollFlow(bot);          // Флоу "Сегодня пил?"
+  log.info('Bot: started, handlers & poll flow registered');
 
-  // Грациозное выключение
+  // --- Корректное завершение ---
   const shutdown = async (reason: string) => {
     log.warn({ reason }, 'Shutting down...');
-    await stopBot();
-    await closeRedis();
-    await closePg();
+    try { await stopBot(); } catch {}
+    try { await closePg(); } catch {}
+    try { await closeRedis(); } catch {}
     log.info('Bye');
     process.exit(0);
   };
-
-  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGINT',  () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
 }
 
 main().catch((err) => {
-  // Непойманные ошибки
-  const log = createLogger(process.env.LOG_LEVEL);
-  log.fatal({ err }, 'Fatal error');
+  log.error({ err }, 'Fatal in main()');
   process.exit(1);
 });

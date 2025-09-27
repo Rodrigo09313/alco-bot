@@ -1,41 +1,31 @@
-import { Pool } from 'pg';
-import { env } from '../config/env.js';
-import { createLogger } from '../lib/logger.js';
+import postgres from 'postgres';
 
-const log = createLogger(process.env.LOG_LEVEL);
+// Если .env не подхватился — дефолт на твой проброшенный порт 5433
+const url = process.env.DATABASE_URL ?? 'postgres://alco:alco@localhost:5433/alco';
 
-let pool: Pool | null = null;
+// Один клиент на всё приложение
+export const sql = postgres(url, {
+  prepare: true,
+  max: 10,
+});
 
-/**
- * Создаём singleton-пул подключений к Postgres.
- * Параметры подобраны под dev; позже можно тюнить.
- */
+// Транзакции
+export async function withTransaction<T>(fn: (tx: postgres.TransactionSql) => Promise<T>): Promise<T> {
+  return sql.begin(fn);
+}
+
+/** Совместимость со старым кодом */
 export function getPg() {
-  if (!pool) {
-    pool = new Pool({
-      connectionString: env.DATABASE_URL,
-      max: 10,                  // максимум подключений в пуле
-      idleTimeoutMillis: 30_000 // сколько держать неиспользуемое соединение
-    });
-
-    pool.on('error', (err) => {
-      log.error({ err }, 'Postgres pool error');
-    });
-  }
-  return pool;
+  return sql;
 }
 
-/** Простой self-check: SELECT 1 */
-export async function checkPg() {
-  const pg = getPg();
-  const res = await pg.query('SELECT 1 AS ok;');
-  return res.rows[0]?.ok === 1;
+/** Возвращает число 1, чтобы прохождение healthcheck было совместимо с index.ts */
+export async function checkPg(): Promise<number> {
+  const [row] = await sql<{ one: number }>`select 1 as one`;
+  return row?.one ?? 0;
 }
 
-/** Грациозное закрытие пула (для SIGINT/SIGTERM) */
 export async function closePg() {
-  if (pool) {
-    await pool.end().catch(() => {});
-    pool = null;
-  }
+  // мягко закрываем пул
+  await sql.end({ timeout: 5 });
 }

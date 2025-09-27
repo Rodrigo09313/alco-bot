@@ -1,19 +1,36 @@
-// Простой thin-слой над pg.Pool: единая точка входа для запросов.
-// Это удобно для логирования/трассировки и будущих транзакций.
+import { sql, withTransaction } from './pg';
 
-import { getPg } from './pg.js';
+/**
+ * Бэкомпат: q / q1 принимают:
+ *  1) Tagged template: q`SELECT ... WHERE id=${id}`
+ *  2) Старый стиль:     q("SELECT ... WHERE id=$1", [id])
+ */
+type SQLTemplate = TemplateStringsArray | string;
 
-export type QueryableRow = Record<string, unknown>;
-
-/** Выполнить параметризованный SQL */
-export async function q<T extends QueryableRow = any>(text: string, params: any[] = []) {
-  const pg = getPg();
-  const res = await pg.query<T>(text, params);
-  return res.rows;
+export async function q<T = any>(stringsOrText: SQLTemplate, ...values: any[]): Promise<T[]> {
+  if (typeof stringsOrText === 'string') {
+    // Старый стиль: q("...$1,...$2", [v1, v2])
+    const params = (values && values.length ? values[0] : []) as any[];
+    const rows = await (sql as any).unsafe(stringsOrText, params);
+    return rows as unknown as T[];
+  } else {
+    // Новый стиль: q`... ${v1} ... ${v2}`
+    const rows = await (sql as any)(stringsOrText as TemplateStringsArray, ...values);
+    return rows as unknown as T[];
+  }
 }
 
-/** Взять одну строку или null */
-export async function q1<T extends QueryableRow = any>(text: string, params: any[] = []) {
-  const rows = await q<T>(text, params);
-  return rows[0] ?? null;
+export async function q1<T = any>(stringsOrText: SQLTemplate, ...values: any[]): Promise<T | null> {
+  if (typeof stringsOrText === 'string') {
+    const params = (values && values.length ? values[0] : []) as any[];
+    const rows = await (sql as any).unsafe(stringsOrText, params);
+    const arr = rows as unknown as T[];
+    return arr[0] ?? null;
+  } else {
+    const rows = await (sql as any)(stringsOrText as TemplateStringsArray, ...values);
+    const arr = rows as unknown as T[];
+    return arr[0] ?? null;
+  }
 }
+
+export { withTransaction };

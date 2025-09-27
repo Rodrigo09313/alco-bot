@@ -1,5 +1,5 @@
 // Репозиторий пользователей: создание и обновление полей регистрации.
-import { q, q1 } from './sql.js';
+import { q, q1 } from './sql';
 
 export type Mode = 'zozh' | 'alco';
 export interface UserRow {

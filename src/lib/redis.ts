@@ -1,6 +1,6 @@
 import Redis from 'ioredis';
-import { env } from '../config/env.js';
-import { createLogger } from './logger.js';
+import { env } from '../config/env';
+import { createLogger } from './logger';
 
 const log = createLogger(process.env.LOG_LEVEL);
 
